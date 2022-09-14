@@ -5,39 +5,23 @@ import numpy as np
 import open3d as o3d
 from scipy import linalg as LA
 
-MAX_LEVEL = 2
+MAX_LEVEL = 4
 
 centers = []
+
+corner_indices = np.array([v for v in list(product([-1, 0, 1], repeat=3)) if 0 not in v])
+NEIGHBOR_INDICES = np.array(list(product([-1, 0, 1], repeat=3)))
+NEIGHBOR_INDICES = np.delete(NEIGHBOR_INDICES, 13, axis=0)
 
 
 def dist(point, norm, d):
     d = abs(norm[0]*point[0] + norm[1]*point[1] + norm[2]*point[2] +
-            d)/math.sqrt(norm[0]**2 + norm[1]**2 + norm[2]**2)
+            -d)/math.sqrt(norm[0]**2 + norm[1]**2 + norm[2]**2)
     return d
 
 
-class Point:
-    def __init__(self, x, y, z) -> None:
-        self.x = x
-        self.y = y
-        self.z = z
-
-    def val(self):
-        return self.x, self.y, self.z
-
-    def asarray(self):
-        return np.array([self.x, self.y, self.z])
-
-    def round(self):
-        return np.around(self.asarray(), decimals=6)
-
-    @staticmethod
-    def const(val):
-        return Point(val, val, val)
-
-
 class Octree:
-    def __init__(self, cloud=None, center=None) -> None:
+    def __init__(self, cloud=None, center=None, normals=None) -> None:
         if cloud is None:
             return
         self.cloud = cloud
@@ -49,63 +33,69 @@ class Octree:
         self.points = []
         self.is_leaf = False
         self.normal = self.residual = 0
+        if normals is not None:
+            self.normals = normals
         self.d = 0
         self.num_nb = 0
         self.is_unallocated = False
-        minimum: Point = Point.const(float('inf'))
-        maximum: Point = Point.const(float('-inf'))
+        self.residuals = []
+        minimum = [float('inf')]*3
+        maximum = [-float('inf')]*3
         for i, point in enumerate(cloud):
-            p = Point(*point)
-            minimum.x = min(minimum.x, p.x)
-            minimum.y = min(minimum.y, p.y)
-            minimum.z = min(minimum.z, p.z)
-            maximum.x = max(maximum.x, p.x)
-            maximum.y = max(maximum.y, p.y)
-            maximum.z = max(maximum.z, p.z)
+            x,y,z = point
+            minimum[0] = min(minimum[0], x)
+            minimum[1] = min(minimum[1], y)
+            minimum[2] = min(minimum[2], z)
+            maximum[0] = max(maximum[0], x)
+            maximum[1] = max(maximum[1], y)
+            maximum[2] = max(maximum[2], z)
             self.indices.append(i)
             self.points.append(point)
-        x = (minimum.x + maximum.x)/2
-        y = (minimum.y + maximum.y)/2
-        z = (minimum.z + maximum.z)/2
+        x = (minimum[0] + maximum[0])/2
+        y = (minimum[1] + maximum[1])/2
+        z = (minimum[2] + maximum[2])/2
         if center is not None:
-            self.center = Point(*center)
+            self.center = np.array([*center])
         else:
-            self.center = Point(x, y, z)
-        self.size = max(maximum.x-minimum.x, max(maximum.y -
-                        minimum.y, maximum.z - minimum.z))
+            self.center = np.array([x, y, z])
+        self.size = max(maximum[0]-minimum[0], max(maximum[1] -
+                        minimum[1], maximum[2] - minimum[2]))
         self.children = [None] * 8
 
     def __hash__(self) -> int:
-        return hash(tuple(self.center.round()))
+        return hash(tuple(np.around(np.array(self.center),decimals=6)))
+
+    def __eq__(self, __o: object) -> bool:
+        return id(self) == id(__o)
 
     def create(self, minsize: float):
         if len(self.indices) < 3 or self.level > MAX_LEVEL:
             return
         newSize = self.size / 2
         new_centers = [
-            Point(self.center.x - newSize, self.center.y -
-                  newSize, self.center.z - newSize),
-            Point(self.center.x - newSize, self.center.y -
-                  newSize, self.center.z + newSize),
-            Point(self.center.x - newSize, self.center.y +
-                  newSize, self.center.z - newSize),
-            Point(self.center.x - newSize, self.center.y +
-                  newSize, self.center.z + newSize),
-            Point(self.center.x + newSize, self.center.y -
-                  newSize, self.center.z - newSize),
-            Point(self.center.x + newSize, self.center.y -
-                  newSize, self.center.z + newSize),
-            Point(self.center.x + newSize, self.center.y +
-                  newSize, self.center.z - newSize),
-            Point(self.center.x + newSize, self.center.y + newSize, self.center.z + newSize)]
+            [self.center[0] - newSize, self.center[1] -
+                  newSize, self.center[2] - newSize],
+            [self.center[0] - newSize, self.center[1] -
+                  newSize, self.center[2] + newSize],
+            [self.center[0] - newSize, self.center[1] +
+                  newSize, self.center[2] - newSize],
+            [self.center[0] - newSize, self.center[1] +
+                  newSize, self.center[2] + newSize],
+            [self.center[0] + newSize, self.center[1] -
+                  newSize, self.center[2] - newSize],
+            [self.center[0] + newSize, self.center[1] -
+                  newSize, self.center[2] + newSize],
+            [self.center[0] + newSize, self.center[1] +
+                  newSize, self.center[2] - newSize],
+            [self.center[0] + newSize, self.center[1] + newSize, self.center[2] + newSize]]
         for c in new_centers:
             centers.append(c)
         self.children = list(map(lambda c: Octree.create_child(
             self, c, newSize, (self.level == MAX_LEVEL)), new_centers))
         for i in self.indices:
-            point = Point(*self.cloud[i])
-            index = ((point.x > self.center.x) << 2) | (
-                (point.y > self.center.y) << 1) | (point.z > self.center.z)
+            point = np.array(self.cloud[i])
+            index = ((point[0]> self.center[0]) << 2) | (
+                (point[1] > self.center[1]) << 1) | (point[2] > self.center[2])
             self.children[index].indices.append(i)
             # self.root.leaves[i] = self.children[index]
         for child in self.children:
@@ -124,46 +114,83 @@ class Octree:
         child.size = size
         child.is_leaf = is_leaf
         child.indices = []
+        if is_leaf:
+            child.residuals = []
         child.num_nb = 0
         child.is_unallocated = False
+        child.normals = parent.normals
         return child
 
     def calc_n_r(self):
         inliers = np.array([self.cloud[i] for i in self.indices])
-        mean = np.mean(inliers, axis=0)
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(inliers)
-        pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-        self.normal = np.mean(np.asarray(pcd.normals), axis=0)
-        p_d = self.center.x*self.normal[0] + self.center.y * \
-            self.normal[1] + self.center.z*self.normal[2]
+        normals = np.array(list(map(lambda i: self.normals[i],self.indices)))
+        self.normal = np.mean(normals, axis=0)
+        p_d = self.center[0]*self.normal[0] + self.center[1] * \
+            self.normal[1] + self.center[2]*self.normal[2]
         self.d = p_d
         D = 0
         for inlier in inliers:
-            D += (dist(inlier, self.normal, p_d)**2)
+            d = dist(inlier, self.normal, p_d)
+            self.residuals.append(d)
+            D += (d**2)
+        # print(np.mean(np.array(self.residuals), axis=0))
         D = D/len(inliers)
         self.residual = D**0.5
+
+    def find_leaf_is_allocated(self, index):
+        for leaf in self.root.leaves:
+            if index in leaf.indices:
+                return leaf.is_unallocated
+        return False
+
+    def get_buffer_zone_points(self, kdtree):
+        # idee: an jeder ecke des voxels einen neighbor search machen per kdtree, radius: size/2
+        corners = corner_indices * self.size
+        corners += self.center
+        radius = self.size
+        buffer_points = dict()
+        # iterate over unallocated neighbors
+        B = get_neighbors(self.root.leaves, self)
+        for nb in B:
+            if not nb.is_unallocated:
+                continue
+            buffer_points[nb] = set()
+            for index in nb.indices:
+                buffer_points[nb].add(index)
+        return buffer_points
 
 
 leaves: List[Octree] = []
 
+def get_neighbor_count_same_cluster(leaf, cluster_center):
+    global NEIGHBOR_INDICES
+    assert leaf.is_leaf
+    step = leaf.size*2
+    neighbors = NEIGHBOR_INDICES * step
+    neighbors += leaf.center
+    neighbors.round(decimals=6)
+    neighbor_centers = set([tuple(np.around(x,decimals=6)) for x in neighbors])
+    nbs = set()
+    for center in neighbor_centers:
+        if center in cluster_center:
+            nbs.add(center)
+    return len(nbs)
+
 
 def get_neighbors(leaves: List[Octree], leaf: Octree) -> List[Octree]:
-    assert leaf.is_leaf 
+    global NEIGHBOR_INDICES
+    assert leaf.is_leaf
     step = leaf.size*2
-    neighbor_centers = np.array(list(product([-step, 0, step], repeat=3)))
-    neighbor_centers = np.delete(neighbor_centers, 13, axis=0)  # repeat 0,0,0
-    # neighbor_centers = np.array(
-    #     [[-step, 0, 0], [step, 0, 0], [0, step, 0], [0, -step, 0], [0, 0, step], [0, 0, -step]])
-    neighbor_centers += leaf.center.asarray()
-    np.around(neighbor_centers, decimals=6, out=neighbor_centers)
-    neighbor_centers = set([tuple(x) for x in neighbor_centers])
+    neighbors = NEIGHBOR_INDICES * step
+    neighbors += leaf.center
+    neighbors.round(decimals=6)
+    neighbor_centers = set([tuple(np.around(x,decimals=6)) for x in neighbors])
     nbs = []
     for root_leaf in leaves:
-        if tuple(root_leaf.center.round()) in neighbor_centers:
+        rounded_center = tuple(np.around(root_leaf.center, decimals=6))
+        if  rounded_center in neighbor_centers:
             nbs.append(root_leaf)
-            neighbor_centers.remove(tuple(root_leaf.center.round()))
+            neighbor_centers.remove(rounded_center)
     leaf.num_nb = len(nbs)
     return nbs
 
@@ -177,7 +204,7 @@ if __name__ == '__main__':
     # oc.create(5.0)
     leaf_centers = []
     for leaf in leaves:
-        leaf_centers.append([leaf.center.x, leaf.center.y, leaf.center.z])
+        leaf_centers.append([leaf.center[0], leaf.center[1], leaf.center[2]])
 
     print(leaves[0].calc_n_r())
     exit()

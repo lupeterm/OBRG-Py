@@ -1,14 +1,18 @@
-from typing import List, Set, Tuple
+import cProfile
+from operator import is_
+from typing import Dict, List, Set, Tuple
 import open3d as o3d
 import numpy as np
 from collections import deque
-from skspatial.objects import Plane
+from octree import Octree, dist, get_neighbor_count_same_cluster, get_neighbors
+from visualization import draw_boundaries, draw_complete, draw_incomplete, draw_planar_nplanar, draw_unallocated
+from tqdm import tqdm
 
-from octree import Octree, dist, get_neighbors
+RES_TH = 0.1  # residual threshold, not explained in paper
+D_TH = 0.05
+ANG_TH = 0.3  # FIXME
+MIN_SEGMENT = 1000  # min points of segment
 
-RES_TH = 20.0  # residual threshold, not explained in paper
-ANG_TH = 0.03  # FIXME
-MIN_SEGMENT = 200  # min points of segment
 
 def get_cloud(path):
     points = np.loadtxt(cloud_path, dtype=float, usecols=(0, 1, 2)).tolist()
@@ -25,128 +29,185 @@ def ang_div(n1, n2):
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 
-def obrg(O: Octree):
-    R = []
-
-    A = O.leaves.copy()
-    A = deque(sorted(A, key=lambda l: l.residual))
+def obrg(O: Octree) -> List[Set[Octree]]:
+    R: List[Set[Octree]] = list()
+    a = O.leaves
+    a.sort(key=lambda x: x.residual)
+    A = deque(a)
     while len(A) > 0:
-        R_c: List[Octree] = []
-        S_c: List[Octree] = []
-        # "return and remove the voxel having the smallest residual value among set A"
+        R_c: Set[Octree] = set()
+        S_c: Set[Octree] = set()
         v_min = A.popleft()
         if v_min.residual > RES_TH:
             break
-        R_c.append(v_min)
-        S_c.append(v_min)
-        for v_i in S_c:
-            B_c:List[Octree] = get_neighbors(O.leaves, v_i)
+        S_c.add(v_min)
+        R_c.add(v_min)
+        while len(S_c) > 0:
+            v_i = S_c.pop()
+            B_c = get_neighbors(O.leaves, v_i)
             for v_j in B_c:
-                ang_diff = ang_div(v_i.normal, v_j.normal)
-                if v_j in A and ang_diff <= ANG_TH:
-                    # print("adding to R_c")
-                    R_c.append(v_j)
+                ang = ang_div(v_i.normal, v_j.normal)
+                if v_j in A and ang <= ANG_TH:
+                    # check if already inserted somewhere
+                    R_c.add(v_j)
                     A.remove(v_j)
                     if v_j.residual < RES_TH:
-                        S_c.append(v_j)
+                        S_c.add(v_j)
             m = sum([len(l.indices) for l in R_c])
             if m > MIN_SEGMENT:
-                R.append(R_c)
+                for segment in R:
+                    seg_int = segment.intersection(R_c)
+                    if len(seg_int) > 0:
+                        segment.update(R_c)
+                        break
+                else:
+                    R.append(R_c)
             else:
                 for l in R_c:
                     l.is_unallocated = True
-                R_c.clear()
-
-    return list(reversed(sorted(R, key=lambda x: len(x))))
+    return sorted(R, key=lambda x: len(x), reverse=True)
 
 
-def extract_boundary_voxels(cluster: List[Octree]):
-    return [leaf for leaf in cluster if leaf.num_nb < 8]
+def extract_boundary_voxels(cluster: Set[Octree]) -> Set[Octree]:
+    cluster_centers = [tuple(np.around(voxel.center,decimals=6)) for voxel in cluster]
+    boundaries = set([leaf for leaf in cluster if get_neighbor_count_same_cluster(leaf,cluster_centers)])
+    return boundaries        
 
-def check_planarity(r_i: List[Octree]):
+
+def check_planarity(r_i: Set[Octree]) -> bool:
     avg_norm = sum([l.normal for l in r_i]) / len(r_i)
-    avg_d  = sum([l.d for l in r_i]) / len(r_i)
+    avg_d = sum([l.d for l in r_i]) / len(r_i)
     num_points = sum([len(l.indices) for l in r_i])
     planar = 0
+    ds = []
     for leaf in r_i:
         for index in leaf.indices:
             d = dist(leaf.cloud[index], avg_norm, avg_d)
-            if d < 3:
+            ds.append(d)
+            if d < D_TH:  # 7cm varianz? 
                 planar += 1
-    return (planar / num_points) > 0.7
+    return (planar / num_points) > 0.8
 
-def fast_refine(O:Octree, R_i:List[Octree], V_b:List[Octree]):
-    segment = []
-    S = V_b.copy()
-    if S == []:
-        return R_i
+
+def fast_refine(O: Octree, R_i: List[Octree], V_b: Set[Octree]):
+    S = b_v.copy()
+    norm_R_i = sum([l.normal for l in R_i]) / len(R_i)
+    d_R_i = sum([l.d for l in R_i]) / len(R_i)
+    to_be_added:Set[int] = set()
+    visited = set()
     while len(S) > 0:
         v_j = S.pop()
+        visited.add(v_j)
         B = get_neighbors(O.leaves, v_j)
         for v_k in B:
             if v_k.is_unallocated:
-                for p_l in v_k.indices:
-                    if dist(v_k.cloud[p_l], v_k.normal, v_k.d) < RES_TH:
-                        # R_i.append(p_l)
-                        v_j.indices.append(p_l)                        
-                        S.append(v_k)
-        segment.append(v_j)
-    return segment
+                for index in v_k.indices:
+                    if dist(v_k.cloud[index], norm_R_i, d_R_i) < D_TH:
+                        to_be_added.add(index)
+                        if v_k not in visited:
+                            S.add(v_k)
+    tmp = V_b.pop()
+    for index in to_be_added:
+        tmp.indices.append(index)
+    V_b.add(tmp)
 
-def general_refinement(R_i:List[Octree], b_v:List[Octree]):
-    v_b = filter(lambda v: v.is_unallocated, b_v)
-    planemaybe = [] # list of points
-    for leaf in R_i:
-        for inlier in leaf.indices:
-            pass # TODO            
+def general_refinement(O:Octree, R_i: List[Octree], b_v: List[Octree], kdtree) -> Set[int]:
+    S: Set[Octree] = set(b_v)
+    visited = set()
+    to_add: Set[int] = set()
+    while len(S) > 0:
+        v_j = S.pop()
+        # B = get_neighbors(O.leaves, v_j)
+        nb_points = v_j.get_buffer_zone_points(kdtree)
+        for nb, buffer_points in nb_points.items():
+            for buffer_index in buffer_points:
+                datapoint = v_j.cloud[buffer_index]
+                distance = dist(datapoint, v_j.normal, v_j.d)
+                if distance < D_TH:
+                    v_j.indices.append(buffer_index)
+                    to_add.add(buffer_index)
+                    nb.indices.remove(buffer_index)
+    return to_add
+
+
+def refinement(is_planar, oc, incomplete_segment, b_v, kdtree):
+    if is_planar:
+        # fast refinement
+        print('planar!')
+        fast_refine(oc, incomplete_segment, b_v)
+    else:
+        print('not planar')
+        # general refinement for non planar segments
+        # segment = general_refinement(oc, incomplete_segment, b_v, kdtree)
+
 
 
 if __name__ == '__main__':
     # Preparation:
     # read point cloud
-    cloud_path = "WC_1.txt"
+    # cloud_path = "WC_1.txt"
+    cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/WC_1/WC_1.txt"
     points = get_cloud(cloud_path)
+    cloud = o3d.geometry.PointCloud()
+    cloud.points = o3d.utility.Vector3dVector(points)
+    cloud.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
     bb = o3d.geometry.AxisAlignedBoundingBox.create_from_points(
         o3d.utility.Vector3dVector(points))
-    
+    KDTree = o3d.geometry.KDTreeFlann(cloud)
     # PHASE A
-
+    print('A1a')
     # A1a voxelization
-    oc = Octree(points, center=bb.get_center())
+    norms = np.asarray(cloud.normals)
+    oc = Octree(points, center=bb.get_center(), normals=np.asarray(cloud.normals))
     oc.create(bb.get_max_extent())
-    # A1b salience feature estimation 
+    # A1b saliency feature estimation
+    print('A1b')
 
     for leaf in oc.leaves:
         if len(leaf.indices) > 0:
             leaf.calc_n_r()
-        
+
     # A2 voxel based Region Growing
+    print('A2')
     incomplete_segments = obrg(oc)
-    
+    np.random.seed(0)
+    colors = [np.random.rand(3) for _ in range(len(incomplete_segments))]
+    # colors = [[0,0,0]]* len(incomplete_segments)
     # PHASE B
+    print('Ab')
+
+    draw_incomplete(incomplete_segments, colors)
+    # draw_unallocated(oc.leaves)
 
     # B1a extract boundary voxels
-    fast_segments= []
-    for incomplete_segment in incomplete_segments:
+    complete_segments: List[Set[Octree]] = []
+    planars = []
+    nplanars = []
+    for incomplete_segment in tqdm(incomplete_segments):
         b_v = extract_boundary_voxels(incomplete_segment)
-
         # B2 planarity test
         is_planar = check_planarity(incomplete_segment)
 
-        if is_planar:
-            # fast refinement
-            fast_segments.append(fast_refine(oc,incomplete_segment, b_v))
+        refinement(
+            is_planar, oc, incomplete_segment, b_v, KDTree)
+        s = set()
+        complete_segments.append(incomplete_segment.union(b_v))
+        if not is_planar:
+            nplanars.append(incomplete_segment)
         else:
-            # general refinement for non planar segments 
-            pass #TODO
+            planars.append(incomplete_segment)
+        # if is_planar:
+        #     new_segment = set()
+        #     for l in incomplete_segment:
+        #         for p in l.indices:
+        #             new_segment.add(p)
+        #     for p in to_be_added:
+        #         new_segment.add(p)
+        #     complete_segments.append(new_segment)
+    draw_planar_nplanar(planars, [])
+    colors = [np.random.rand(3) for _ in range(len(complete_segments))]
+    complete_segments.sort(key=lambda x: len(x), reverse=True)
+    X = complete_segments[0]
 
-    clouds = []
-    for incomplete_segment in incomplete_segments:
-        pts = []
-        for leaf in incomplete_segment:
-            for inlier in leaf.indices:
-                pts.append(points[inlier])
-        pcd = o3d.geometry.PointCloud()
-        pcd.points= o3d.utility.Vector3dVector(pts)
-        # clouds.append(pcd)
-        o3d.visualization.draw_geometries([pcd])
+    draw_complete(complete_segments, points, colors)

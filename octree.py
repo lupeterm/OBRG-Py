@@ -1,3 +1,4 @@
+from inspect import isdatadescriptor
 from itertools import product
 import math
 from typing import List
@@ -6,7 +7,6 @@ import open3d as o3d
 from scipy import linalg as LA
 
 MAX_LEVEL = 4
-
 centers = []
 
 corner_indices = np.array([v for v in list(product([-1, 0, 1], repeat=3)) if 0 not in v])
@@ -33,6 +33,7 @@ class Octree:
         self.points = []
         self.is_leaf = False
         self.normal = self.residual = 0
+        self.leaf_centers = dict()
         if normals is not None:
             self.normals = normals
         self.d = 0
@@ -63,7 +64,7 @@ class Octree:
         self.children = [None] * 8
 
     def __hash__(self) -> int:
-        return hash(tuple(np.around(np.array(self.center),decimals=6)))
+        return hash(tuple(np.around(np.array(self.center),decimals=4)))
 
     def __eq__(self, __o: object) -> bool:
         return id(self) == id(__o)
@@ -101,10 +102,12 @@ class Octree:
         for child in self.children:
             if child.is_leaf and len(child.indices) > 3:
                 self.root.leaves.append(child)
+                self.root.leaf_centers[tuple(np.around(child.center,decimals=4))] = child
             child.create(minsize)
 
     @staticmethod
     def create_child(parent, center, size, is_leaf=False):
+        global IDS
         child = Octree()
         child.cloud = parent.cloud
         child.parent = parent
@@ -114,6 +117,7 @@ class Octree:
         child.size = size
         child.is_leaf = is_leaf
         child.indices = []
+        child.leaf_centers = parent.root.leaf_centers
         if is_leaf:
             child.residuals = []
         child.num_nb = 0
@@ -147,7 +151,7 @@ class Octree:
         corners = corner_indices * self.size
         corners += self.center
         buffer_points = dict()
-        B = get_neighbors(self.root.leaves, self)
+        B = self.get_neighbors()
         for nb in B:
             if not nb.is_unallocated:
                 continue
@@ -162,6 +166,24 @@ class Octree:
             [leaf.cloud[p] for p in leaf.indices])
         o3d.visualization.draw_geometries([pcd])
 
+    def get_neighbors(self):
+        global NEIGHBOR_INDICES
+        assert self.is_leaf
+        step = self.size*2
+        neighbors = NEIGHBOR_INDICES * step
+        neighbors += self.center
+        neighbor_centers = set([tuple(np.around(x,decimals=4)) for x in neighbors])
+        nbs = []
+        for nb in neighbor_centers:
+            if nb in self.leaf_centers.keys():
+                    nbs.append(self.leaf_centers[nb])
+        # for root_leaf in leaves:
+        #     rounded_center = tuple(np.around(root_leaf.center, decimals=4))
+        #     if  rounded_center in neighbor_centers:
+        #         nbs.append(root_leaf)
+        #         neighbor_centers.remove(rounded_center)
+        self.num_nb = len(nbs)
+        return nbs
 leaves: List[Octree] = []
 
 def get_neighbor_count_same_cluster(leaf, cluster_center):
@@ -179,22 +201,6 @@ def get_neighbor_count_same_cluster(leaf, cluster_center):
     return len(nbs)
 
 
-def get_neighbors(leaves: List[Octree], leaf: Octree) -> List[Octree]:
-    global NEIGHBOR_INDICES
-    assert leaf.is_leaf
-    step = leaf.size*2
-    neighbors = NEIGHBOR_INDICES * step
-    neighbors += leaf.center
-    neighbors.round(decimals=6)
-    neighbor_centers = set([tuple(np.around(x,decimals=6)) for x in neighbors])
-    nbs = []
-    for root_leaf in leaves:
-        rounded_center = tuple(np.around(root_leaf.center, decimals=6))
-        if  rounded_center in neighbor_centers:
-            nbs.append(root_leaf)
-            neighbor_centers.remove(rounded_center)
-    leaf.num_nb = len(nbs)
-    return nbs
 
 
 if __name__ == '__main__':

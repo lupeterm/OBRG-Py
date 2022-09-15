@@ -1,15 +1,16 @@
 import cProfile
 from operator import is_
 from typing import Dict, List, Set, Tuple
+from xml.etree.ElementInclude import include
 import open3d as o3d
 import numpy as np
 from collections import deque
-from octree import Octree, dist, get_neighbor_count_same_cluster, get_neighbors
+from octree import Octree, dist, get_neighbor_count_same_cluster
 from visualization import draw_boundaries, draw_buffer, draw_complete, draw_incomplete, draw_leaf_centers, draw_planar_nplanar, draw_unallocated
 from tqdm import tqdm
 
-RES_TH = 0.13  # residual threshold, not explained in paper
-D_TH = 0.1
+RES_TH = 0.08  # residual threshold, not explained in paper
+D_TH = 0.08
 ANG_TH = 0.3  # FIXME
 MIN_SEGMENT = 5000  # min points of segment
 
@@ -34,6 +35,7 @@ def obrg(O: Octree) -> List[Set[Octree]]:
     a = O.leaves
     a.sort(key=lambda x: x.residual)
     A = deque(a)
+    visited = dict()
     while len(A) > 0:
         R_c: Set[Octree] = set()
         S_c: Set[Octree] = set()
@@ -44,7 +46,7 @@ def obrg(O: Octree) -> List[Set[Octree]]:
         R_c.add(v_min)
         while len(S_c) > 0:
             v_i = S_c.pop()
-            B_c = get_neighbors(O.leaves, v_i)
+            B_c = v_i.get_neighbors()
             for v_j in B_c:
                 ang = ang_div(v_i.normal, v_j.normal)
                 if v_j in A and ang <= ANG_TH:
@@ -55,21 +57,39 @@ def obrg(O: Octree) -> List[Set[Octree]]:
                         S_c.add(v_j)
             m = sum([len(l.indices) for l in R_c])
             if m > MIN_SEGMENT:
-                for segment in R:
-                    seg_int = segment.intersection(R_c)
-                    if len(seg_int) > 0:
-                        segment.update(R_c)
-                        break
+                # for segment in R:
+                #     seg_int = segment.intersection(R_c)
+                #     if len(seg_int) > 0:
+                #         segment.update(R_c)
+                #         break
+                # else:
+                inclu = None
+                for l in R_c:
+                    if l in visited.keys():
+                        inclu = visited[l]
+                if inclu is not None and len(R) > 0:
+                    for l in R:
+                        if inclu in l:
+                            for l2 in R_c:
+                                l.add(l2)
+                            break
+
                 else:
+                    for l in R_c:
+                        visited[l] = v_i
                     R.append(R_c)
             else:
                 for l in R_c:
                     l.is_unallocated = True
+    # for r in R:
+    #     for r2 in R:
+    #         if not r.isdisjoint(r2):
+    #             r.update(r2)
     return sorted(R, key=lambda x: len(x), reverse=True)
 
 
 def extract_boundary_voxels(cluster: Set[Octree]) -> Set[Octree]:
-    cluster_centers = [tuple(np.around(voxel.center, decimals=6))
+    cluster_centers = [tuple(voxel.center)
                        for voxel in cluster]
     boundaries = set([leaf for leaf in cluster if get_neighbor_count_same_cluster(
         leaf, cluster_centers)])
@@ -92,6 +112,8 @@ def check_planarity(r_i: Set[Octree]) -> bool:
 
 
 def fast_refine(O: Octree, R_i: List[Octree], V_b: Set[Octree]) -> None:
+    if len(V_b) == 0:
+        return
     S = b_v.copy()
     norm_R_i = sum([l.normal for l in R_i]) / len(R_i)
     d_R_i = sum([l.d for l in R_i]) / len(R_i)
@@ -100,7 +122,7 @@ def fast_refine(O: Octree, R_i: List[Octree], V_b: Set[Octree]) -> None:
     while len(S) > 0:
         v_j = S.pop()
         visited.add(v_j)
-        B = get_neighbors(O.leaves, v_j)
+        B = v_j.get_neighbors()
         for v_k in B:
             if v_k.is_unallocated:
                 for index in v_k.indices:
@@ -117,7 +139,7 @@ def fast_refine(O: Octree, R_i: List[Octree], V_b: Set[Octree]) -> None:
 def general_refinement(O: Octree, R_i: List[Octree], b_v: List[Octree], kdtree) -> None:
     S: Set[Octree] = set(b_v)
     # visited = set()
-    to_add: Dict[Octree, Set[int]] = {v : set() for v in b_v}
+    to_add: Dict[Octree, Set[int]] = {v: set() for v in b_v}
     while len(S) > 0:
         v_j = S.pop()
         # B = get_neighbors(O.leaves, v_j)
@@ -129,9 +151,9 @@ def general_refinement(O: Octree, R_i: List[Octree], b_v: List[Octree], kdtree) 
             for nbi in nb_indices:
                 a = ang_div(v_j.normal, neighbor.normals[nbi])
                 b = dist(neighbor.cloud[nbi], v_j.normal, v_j.d)
-                if a <=  ANG_TH and b < RES_TH:
+                if a <= ANG_TH and b < RES_TH:
                     to_add[v_j].add(nbi)
-    for k,v in to_add.items():
+    for k, v in to_add.items():
         for val in v:
             k.indices.append(val)
 
@@ -150,7 +172,7 @@ def refinement(is_planar, oc, incomplete_segment, b_v, kdtree):
 if __name__ == '__main__':
     # Preparation:
     # read point cloud
-    # cloud_path = "WC_1.txt"
+    # cloud_path = "whatevs.asc"
     cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/office_4/office_4.txt"
     # cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/WC_1/WC_1.txt"
     points = get_cloud(cloud_path)
@@ -177,6 +199,7 @@ if __name__ == '__main__':
     # draw_leaf_centers(oc.leaves)
     # A2 voxel based Region Growing
     print('A2')
+    cProfile.run('obrg(oc)', sort='tottime')
     incomplete_segments = obrg(oc)
     np.random.seed(0)
     colors = [np.random.rand(3) for _ in range(len(incomplete_segments))]
@@ -204,15 +227,6 @@ if __name__ == '__main__':
             nplanars.append(incomplete_segment)
         else:
             planars.append(incomplete_segment)
-        # if is_planar:
-        #     new_segment = set()
-        #     for l in incomplete_segment:
-        #         for p in l.indices:
-        #             new_segment.add(p)
-        #     for p in to_be_added:
-        #         new_segment.add(p)
-        #     complete_segments.append(new_segment)
-    # draw_planar_nplanar(planars, [])
     colors = [np.random.rand(3) for _ in range(len(complete_segments))]
     complete_segments.sort(key=lambda x: len(x), reverse=True)
     X = complete_segments[0]

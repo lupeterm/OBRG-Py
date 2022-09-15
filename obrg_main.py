@@ -173,7 +173,7 @@ if __name__ == '__main__':
     # Preparation:
     # read point cloud
     # cloud_path = "whatevs.asc"
-    cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/office_4/office_4.txt"
+    cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/hallway_7/hallway_7.txt"
     # cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/WC_1/WC_1.txt"
     points = get_cloud(cloud_path)
     cloud = o3d.geometry.PointCloud()
@@ -196,10 +196,10 @@ if __name__ == '__main__':
     for leaf in oc.leaves:
         if len(leaf.indices) > 0:
             leaf.calc_n_r()
-    # draw_leaf_centers(oc.leaves)
+    draw_leaf_centers(oc.leaves)
     # A2 voxel based Region Growing
     print('A2')
-    cProfile.run('obrg(oc)', sort='tottime')
+    # cProfile.run('obrg(oc)', sort='tottime')
     incomplete_segments = obrg(oc)
     np.random.seed(0)
     colors = [np.random.rand(3) for _ in range(len(incomplete_segments))]
@@ -229,6 +229,4 @@ if __name__ == '__main__':
             planars.append(incomplete_segment)
     colors = [np.random.rand(3) for _ in range(len(complete_segments))]
     complete_segments.sort(key=lambda x: len(x), reverse=True)
-    X = complete_segments[0]
-
     draw_complete(complete_segments, points, colors)

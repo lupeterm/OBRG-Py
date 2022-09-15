@@ -6,7 +6,7 @@ import numpy as np
 import open3d as o3d
 from scipy import linalg as LA
 
-MAX_LEVEL = 4
+MAX_LEVEL = 7
 centers = []
 
 corner_indices = np.array([v for v in list(product([-1, 0, 1], repeat=3)) if 0 not in v])

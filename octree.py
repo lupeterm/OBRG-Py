@@ -144,12 +144,9 @@ class Octree:
         return False
 
     def get_buffer_zone_points(self, kdtree):
-        # idee: an jeder ecke des voxels einen neighbor search machen per kdtree, radius: size/2
         corners = corner_indices * self.size
         corners += self.center
-        radius = self.size
         buffer_points = dict()
-        # iterate over unallocated neighbors
         B = get_neighbors(self.root.leaves, self)
         for nb in B:
             if not nb.is_unallocated:
@@ -159,6 +156,11 @@ class Octree:
                 buffer_points[nb].add(index)
         return buffer_points
 
+    def draw(self):
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(
+            [leaf.cloud[p] for p in leaf.indices])
+        o3d.visualization.draw_geometries([pcd])
 
 leaves: List[Octree] = []
 

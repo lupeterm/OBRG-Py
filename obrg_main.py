@@ -1,33 +1,19 @@
-import cProfile
-from operator import is_
-from typing import Dict, List, Set, Tuple
-from xml.etree.ElementInclude import include
+from time import time
+from typing import Dict, List, Set
 import open3d as o3d
 import numpy as np
 from collections import deque
-from octree import Octree, dist, get_neighbor_count_same_cluster
-from visualization import draw_boundaries, draw_buffer, draw_complete, draw_incomplete, draw_leaf_centers, draw_planar_nplanar, draw_unallocated
+from obrg_io import get_points, save_planes
+from obrg_utils import ang_div, dist
+from octree import Octree, get_neighbor_count_same_cluster
+from visualization import draw_complete, draw_incomplete, draw_leaf_centers
 from tqdm import tqdm
 
-RES_TH = 0.08  # residual threshold, not explained in paper
-D_TH = 0.08
-ANG_TH = 0.3  # FIXME
+# THRESHOLD PARAMETERS USED IN OBRG
+RES_TH = 0.08   # in meter, i guess?
+D_TH = 0.08     # in meter, i guess?
+ANG_TH = 0.3    # no idea, works somewhat fine
 MIN_SEGMENT = 5000  # min points of segment
-
-
-def get_cloud(path):
-    points = np.loadtxt(cloud_path, dtype=float, usecols=(0, 1, 2)).tolist()
-    return points
-
-
-def unit_vector(n):
-    return n/np.linalg.norm(n)
-
-
-def ang_div(n1, n2):
-    v1_u = unit_vector(n1)
-    v2_u = unit_vector(n2)
-    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 
 def obrg(O: Octree) -> List[Set[Octree]]:
@@ -57,12 +43,6 @@ def obrg(O: Octree) -> List[Set[Octree]]:
                         S_c.add(v_j)
             m = sum([len(l.indices) for l in R_c])
             if m > MIN_SEGMENT:
-                # for segment in R:
-                #     seg_int = segment.intersection(R_c)
-                #     if len(seg_int) > 0:
-                #         segment.update(R_c)
-                #         break
-                # else:
                 inclu = None
                 for l in R_c:
                     if l in visited.keys():
@@ -73,7 +53,6 @@ def obrg(O: Octree) -> List[Set[Octree]]:
                             for l2 in R_c:
                                 l.add(l2)
                             break
-
                 else:
                     for l in R_c:
                         visited[l] = v_i
@@ -81,10 +60,6 @@ def obrg(O: Octree) -> List[Set[Octree]]:
             else:
                 for l in R_c:
                     l.is_unallocated = True
-    # for r in R:
-    #     for r2 in R:
-    #         if not r.isdisjoint(r2):
-    #             r.update(r2)
     return sorted(R, key=lambda x: len(x), reverse=True)
 
 
@@ -106,7 +81,7 @@ def check_planarity(r_i: Set[Octree]) -> bool:
         for index in leaf.indices:
             d = dist(leaf.cloud[index], avg_norm, avg_d)
             ds.append(d)
-            if d < D_TH:  # 7cm varianz?
+            if d < D_TH:
                 planar += 1
     return (planar / num_points) > 0.8
 
@@ -142,11 +117,7 @@ def general_refinement(O: Octree, R_i: List[Octree], b_v: List[Octree], kdtree) 
     to_add: Dict[Octree, Set[int]] = {v: set() for v in b_v}
     while len(S) > 0:
         v_j = S.pop()
-        # B = get_neighbors(O.leaves, v_j)
         nb_points: Dict[Octree, List] = v_j.get_buffer_zone_points(kdtree)
-        # draw_buffer(nb_points, v_j)
-        # for index in v_j.indices:
-        #     datapoint = O.cloud[index]
         for neighbor, nb_indices in nb_points.items():
             for nbi in nb_indices:
                 a = ang_div(v_j.normal, neighbor.normals[nbi])
@@ -172,10 +143,8 @@ def refinement(is_planar, oc, incomplete_segment, b_v, kdtree):
 if __name__ == '__main__':
     # Preparation:
     # read point cloud
-    # cloud_path = "whatevs.asc"
-    cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/hallway_7/hallway_7.txt"
-    # cloud_path = "/home/pedda/Documents/uni/BA/Thesis/catkin_ws/src/plane-detection/src/EVAL/Stanford3dDataset_v1.2_Aligned_Version/TEST/WC_1/WC_1.txt"
-    points = get_cloud(cloud_path)
+    cloud_path = "/home/pedda/Documents/coding/OBRG/WC_1.txt"
+    points = get_points(cloud_path)
     cloud = o3d.geometry.PointCloud()
     cloud.points = o3d.utility.Vector3dVector(points)
     cloud.estimate_normals(
@@ -183,50 +152,41 @@ if __name__ == '__main__':
     bb = o3d.geometry.AxisAlignedBoundingBox.create_from_points(
         o3d.utility.Vector3dVector(points))
     KDTree = o3d.geometry.KDTreeFlann(cloud)
-    # PHASE A
-    print('A1a')
+
+    ####  PHASE A ####
     # A1a voxelization
     norms = np.asarray(cloud.normals)
     oc = Octree(points, center=bb.get_center(),
                 normals=np.asarray(cloud.normals))
     oc.create(bb.get_max_extent())
     # A1b saliency feature estimation
-    print('A1b')
 
     for leaf in oc.leaves:
         if len(leaf.indices) > 0:
             leaf.calc_n_r()
-    draw_leaf_centers(oc.leaves)
+
     # A2 voxel based Region Growing
-    print('A2')
-    # cProfile.run('obrg(oc)', sort='tottime')
+    start = time()
     incomplete_segments = obrg(oc)
+    elapsed = time()-start
+    print(f'time spent in obrg: {elapsed} seconds')
     np.random.seed(0)
     colors = [np.random.rand(3) for _ in range(len(incomplete_segments))]
-    # colors = [[0,0,0]]* len(incomplete_segments)
-    # PHASE B
-    print('Ab')
 
-    draw_incomplete(incomplete_segments, colors)
-    # draw_unallocated(oc.leaves)
+    #### PHASE B ####
 
-    # B1a extract boundary voxels
     complete_segments: List[Set[Octree]] = []
-    planars = []
-    nplanars = []
     for incomplete_segment in tqdm(incomplete_segments):
+        # B1a extract boundary voxels
         b_v = extract_boundary_voxels(incomplete_segment)
         # B2 planarity test
         is_planar = check_planarity(incomplete_segment)
-        # draw_boundaries(incomplete_segment, b_v)
+
+        # B3 Refinement (FR or GR)
         refinement(
             is_planar, oc, incomplete_segment, b_v, KDTree)
-        s = set()
         complete_segments.append(incomplete_segment.union(b_v))
-        if not is_planar:
-            nplanars.append(incomplete_segment)
-        else:
-            planars.append(incomplete_segment)
     colors = [np.random.rand(3) for _ in range(len(complete_segments))]
     complete_segments.sort(key=lambda x: len(x), reverse=True)
     draw_complete(complete_segments, points, colors)
+    # save_planes(complete_segments, cloud_path)

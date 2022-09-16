@@ -6,7 +6,9 @@ import numpy as np
 import open3d as o3d
 from scipy import linalg as LA
 
-MAX_LEVEL = 7
+from obrg_utils import dist
+
+MAX_LEVEL = 4
 centers = []
 
 corner_indices = np.array([v for v in list(product([-1, 0, 1], repeat=3)) if 0 not in v])
@@ -14,10 +16,6 @@ NEIGHBOR_INDICES = np.array(list(product([-1, 0, 1], repeat=3)))
 NEIGHBOR_INDICES = np.delete(NEIGHBOR_INDICES, 13, axis=0)
 
 
-def dist(point, norm, d):
-    d = abs(norm[0]*point[0] + norm[1]*point[1] + norm[2]*point[2] +
-            -d)/math.sqrt(norm[0]**2 + norm[1]**2 + norm[2]**2)
-    return d
 
 
 class Octree:

@@ -20,3 +20,11 @@ def save_planes(complete_segments: List[Set[Octree]], cloud_path: str):
                 for inlier in leaf.indices:
                     ofile.write(f'{leaf.cloud[inlier][0]} {leaf.cloud[inlier][1]} {leaf.cloud[inlier][2]}\n')
         
+def save_time(time: float, cloud_path:str):
+    folder = cloud_path.rsplit('/', 1)[0]
+    results_folder = os.path.join(folder, 'results')
+    if not os.path.isdir(results_folder):
+        os.mkdir(results_folder)
+    filename = os.path.join(results_folder, f'times.txt')
+    with open(filename,'w') as ofile:
+        ofile.write(f'obrg-time: {time}')

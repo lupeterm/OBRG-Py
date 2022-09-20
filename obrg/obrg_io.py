@@ -30,5 +30,5 @@ def save_time(time: float, folder: str, dataset_name:str):
         os.mkdir(results_folder)
     filename = os.path.join(results_folder, f'{dataset_name}-times.txt')
     with open(filename, 'w') as ofile:
-        ofile.write('total per_plane per_sample')
+        ofile.write('total per_plane per_sample\n')
         ofile.write(f'{time} -1 -1')

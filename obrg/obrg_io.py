@@ -10,7 +10,7 @@ def get_points(path):
     return points
 
 
-def save_planes(complete_segments: List[Set[Octree]], time: float, folder: str):
+def save_planes(complete_segments: List[Set[Octree]], folder: str):
 
     results_folder = os.path.join(folder, 'OBRG')
     if 'OBRG' not in os.listdir(folder):
@@ -24,11 +24,11 @@ def save_planes(complete_segments: List[Set[Octree]], time: float, folder: str):
                         f'{leaf.cloud[inlier][0]} {leaf.cloud[inlier][1]} {leaf.cloud[inlier][2]}\n')
 
 
-def save_time(time: float, cloud_path: str):
-    folder = cloud_path.rsplit('/', 1)[0]
-    results_folder = os.path.join(folder, 'results')
-    if not os.path.isdir(results_folder):
+def save_time(time: float, folder: str, dataset_name:str):
+    results_folder = os.path.join(folder, 'OBRG')
+    if 'OBRG' not in os.listdir(folder):
         os.mkdir(results_folder)
-    filename = os.path.join(results_folder, f'times.txt')
+    filename = os.path.join(results_folder, f'{dataset_name}-times.txt')
     with open(filename, 'w') as ofile:
-        ofile.write(f'obrg-time: {time}')
+        ofile.write('total per_plane per_sample')
+        ofile.write(f'{time} -1 -1')

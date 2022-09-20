@@ -3,7 +3,7 @@ from typing import Dict, List, Set
 import open3d as o3d
 import numpy as np
 from collections import deque
-from .obrg_io import get_points, save_planes
+from .obrg_io import get_points, save_planes, save_time
 from .obrg_utils import ang_div, dist
 from .octree import Octree, get_neighbor_count_same_cluster
 from .visualization import draw_complete, draw_incomplete, draw_leaf_centers
@@ -189,4 +189,5 @@ def calculate(cloud_path: str, output_path:str, debug = False):
     if debug:
         colors = [np.random.rand(3) for _ in range(len(complete_segments))]
         draw_complete(complete_segments, points, colors)
-    save_planes(complete_segments,elapsed, output_path)
+    save_planes(complete_segments, output_path)
+    save_time(elapsed, output_path, output_path.rsplit('/',1)[-1])

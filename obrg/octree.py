@@ -1,12 +1,10 @@
-from inspect import isdatadescriptor
 from itertools import product
-import math
 from typing import List
 import numpy as np
 import open3d as o3d
 from scipy import linalg as LA
 
-from obrg_utils import dist
+from .obrg_utils import dist
 
 MAX_LEVEL = 4
 centers = []

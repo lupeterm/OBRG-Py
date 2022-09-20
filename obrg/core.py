@@ -3,10 +3,10 @@ from typing import Dict, List, Set
 import open3d as o3d
 import numpy as np
 from collections import deque
-from obrg_io import get_points, save_planes
-from obrg_utils import ang_div, dist
-from octree import Octree, get_neighbor_count_same_cluster
-from visualization import draw_complete, draw_incomplete, draw_leaf_centers
+from .obrg_io import get_points, save_planes
+from .obrg_utils import ang_div, dist
+from .octree import Octree, get_neighbor_count_same_cluster
+from .visualization import draw_complete, draw_incomplete, draw_leaf_centers
 from tqdm import tqdm
 
 # THRESHOLD PARAMETERS USED IN OBRG
@@ -89,7 +89,7 @@ def check_planarity(r_i: Set[Octree]) -> bool:
 def fast_refine(O: Octree, R_i: List[Octree], V_b: Set[Octree]) -> None:
     if len(V_b) == 0:
         return
-    S = b_v.copy()
+    S = V_b.copy()
     norm_R_i = sum([l.normal for l in R_i]) / len(R_i)
     d_R_i = sum([l.d for l in R_i]) / len(R_i)
     to_be_added: Set[int] = set()
@@ -140,10 +140,9 @@ def refinement(is_planar, oc, incomplete_segment, b_v, kdtree):
         general_refinement(oc, incomplete_segment, b_v, kdtree)
 
 
-if __name__ == '__main__':
+def calculate(cloud_path: str, output_path:str, debug = False):
     # Preparation:
     # read point cloud
-    cloud_path = "/home/pedda/Documents/coding/OBRG/WC_1.txt"
     points = get_points(cloud_path)
     cloud = o3d.geometry.PointCloud()
     cloud.points = o3d.utility.Vector3dVector(points)
@@ -170,8 +169,9 @@ if __name__ == '__main__':
     incomplete_segments = obrg(oc)
     elapsed = time()-start
     print(f'time spent in obrg: {elapsed} seconds')
-    np.random.seed(0)
-    colors = [np.random.rand(3) for _ in range(len(incomplete_segments))]
+    if debug:
+        np.random.seed(0)
+        colors = [np.random.rand(3) for _ in range(len(incomplete_segments))]
 
     #### PHASE B ####
 
@@ -186,7 +186,7 @@ if __name__ == '__main__':
         refinement(
             is_planar, oc, incomplete_segment, b_v, KDTree)
         complete_segments.append(incomplete_segment.union(b_v))
-    colors = [np.random.rand(3) for _ in range(len(complete_segments))]
-    complete_segments.sort(key=lambda x: len(x), reverse=True)
-    draw_complete(complete_segments, points, colors)
-    # save_planes(complete_segments, cloud_path)
+    if debug:
+        colors = [np.random.rand(3) for _ in range(len(complete_segments))]
+        draw_complete(complete_segments, points, colors)
+    save_planes(complete_segments,elapsed, output_path)

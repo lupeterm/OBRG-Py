@@ -1,6 +1,6 @@
 
 from typing import Dict, List, Set
-from octree import Octree
+from .octree import Octree
 import open3d as o3d
 import numpy as np
 

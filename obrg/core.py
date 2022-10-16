@@ -140,7 +140,7 @@ def refinement(is_planar, oc, incomplete_segment, b_v, kdtree):
         general_refinement(oc, incomplete_segment, b_v, kdtree)
 
 
-def calculate(cloud_path: str, output_path:str, debug = False):
+def calculate(cloud_path: str, output_path: str, debug=False):
     # Preparation:
     # read point cloud
     points = get_points(cloud_path)
@@ -153,6 +153,8 @@ def calculate(cloud_path: str, output_path:str, debug = False):
     KDTree = o3d.geometry.KDTreeFlann(cloud)
 
     ####  PHASE A ####
+    print('Entering Phase A')
+    start = time()
     # A1a voxelization
     norms = np.asarray(cloud.normals)
     oc = Octree(points, center=bb.get_center(),
@@ -163,8 +165,10 @@ def calculate(cloud_path: str, output_path:str, debug = False):
     for leaf in oc.leaves:
         if len(leaf.indices) > 0:
             leaf.calc_n_r()
+    pre = time()-start
 
     # A2 voxel based Region Growing
+    print('Entering OBRG')
     start = time()
     incomplete_segments = obrg(oc)
     elapsed = time()-start
@@ -174,7 +178,8 @@ def calculate(cloud_path: str, output_path:str, debug = False):
         colors = [np.random.rand(3) for _ in range(len(incomplete_segments))]
 
     #### PHASE B ####
-
+    print('Entering Phase B')
+    start = time()
     complete_segments: List[Set[Octree]] = []
     for incomplete_segment in tqdm(incomplete_segments):
         # B1a extract boundary voxels
@@ -189,5 +194,8 @@ def calculate(cloud_path: str, output_path:str, debug = False):
     if debug:
         colors = [np.random.rand(3) for _ in range(len(complete_segments))]
         draw_complete(complete_segments, points, colors)
-    save_planes(complete_segments, output_path)
-    save_time(elapsed, output_path, output_path.rsplit('/',1)[-1])
+    post = time()-start
+    save_planes(complete_segments, output_path,
+                cloud_path.rsplit('/', 1)[-1].replace('.txt', ''))
+    save_time(elapsed, pre, post, output_path, output_path.rsplit(
+        '/', 1)[-1], cloud_path.rsplit('/', 1)[-1].replace('.txt', ''))

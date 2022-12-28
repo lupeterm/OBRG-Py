@@ -1,4 +1,4 @@
-# OBRG
+# OBRG-Py
 Python implementation of Vo et al.'s paper "Octree-based region growing for point cloud segmentation"
 
 The paper can be found here: https://www.sciencedirect.com/science/article/pii/S0924271615000283

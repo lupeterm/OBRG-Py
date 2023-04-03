@@ -149,6 +149,14 @@ def refinement(is_planar, oc, incomplete_segment, b_v, kdtree):
 
 # @bench_this
 def calculate(cloud_path: str, output_path: str, debug=False):
+    """
+    This is the main entrypoint for the algorithm.
+    An unorganized point cloud in XYZ format is processed and the detected planes are stored in individual files. 
+    Arguments:
+        - `cloud_path` : Path to unorganized Point cloud.
+        - `output_path`: Directory to save the detected planes to.
+        - `debug`      : Enables visualization. Primarily used for development.
+    """
     # Preparation:
     # read point cloud
     points = get_points(cloud_path)
@@ -164,7 +172,6 @@ def calculate(cloud_path: str, output_path: str, debug=False):
     print('Entering Phase A')
     start = time()
     # A1a voxelization
-    norms = np.asarray(cloud.normals)
     oc = Octree(points, center=bb.get_center(),
                 normals=np.asarray(cloud.normals))
     oc.create(bb.get_max_extent())

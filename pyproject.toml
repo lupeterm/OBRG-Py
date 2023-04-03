@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "obrg-py"
+authors = [
+    {name = "Lukas Petermann", email = "lukas.petermann13@gmail.com"}
+]
+description = "Python implementation of the OBRG plane detection algorithm proposed by Vo et al.(2015)"
+requires-python = ">=3.8"
+keywords = ["plane detection", "python" ,"octree", "unorganzed point clouds"]
+license = {text="MIT"}
+classifiers = [
+    "Development Status: 3 - Alpha",
+    "Programming Language :: Python"
+]
+dependencies = [
+    "numpy",
+    "open3d",
+    "scipy",
+    "tqdm"
+]
+
+dynamic = ["version"]

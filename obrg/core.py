@@ -3,19 +3,26 @@ from typing import Dict, List, Set
 import open3d as o3d
 import numpy as np
 from collections import deque
-from .obrg_io import get_points, save_planes, save_time
-from .obrg_utils import ang_div, dist
+from .io import get_points, save_planes, save_time
+from .utils import ang_div, dist, bench_this
 from .octree import Octree, get_neighbor_count_same_cluster
 from .visualization import draw_complete, draw_incomplete, draw_leaf_centers
 from tqdm import tqdm
 
 # THRESHOLD PARAMETERS USED IN OBRG
-RES_TH = 0.08   # in meter, i guess?
-D_TH = 0.08     # in meter, i guess?
-ANG_TH = 0.3    # no idea, works somewhat fine
-MIN_SEGMENT = 5000  # min points of segment
+RES_TH = 0.08   
+D_TH = 0.1      
+ANG_TH = 0.18    
+MIN_SEGMENT = 5000
+PLAN_TH = 0.9
+# RES_TH = 0.22    
+# D_TH = 0.2      
+# ANG_TH = 0.2    
+# MIN_SEGMENT = 5000
+# PLAN_TH = 0.66
 
 
+@bench_this
 def obrg(O: Octree) -> List[Set[Octree]]:
     R: List[Set[Octree]] = list()
     a = O.leaves
@@ -83,7 +90,7 @@ def check_planarity(r_i: Set[Octree]) -> bool:
             ds.append(d)
             if d < D_TH:
                 planar += 1
-    return (planar / num_points) > 0.8
+    return (planar / num_points) > PLAN_TH
 
 
 def fast_refine(O: Octree, R_i: List[Octree], V_b: Set[Octree]) -> None:
@@ -140,6 +147,7 @@ def refinement(is_planar, oc, incomplete_segment, b_v, kdtree):
         general_refinement(oc, incomplete_segment, b_v, kdtree)
 
 
+# @bench_this
 def calculate(cloud_path: str, output_path: str, debug=False):
     # Preparation:
     # read point cloud

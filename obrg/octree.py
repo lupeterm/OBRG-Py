@@ -2,18 +2,15 @@ from itertools import product
 from typing import List
 import numpy as np
 import open3d as o3d
-from scipy import linalg as LA
 
-from .obrg_utils import dist
+from .utils import dist
 
-MAX_LEVEL = 4
+MAX_LEVEL = 5
 centers = []
 
 corner_indices = np.array([v for v in list(product([-1, 0, 1], repeat=3)) if 0 not in v])
 NEIGHBOR_INDICES = np.array(list(product([-1, 0, 1], repeat=3)))
 NEIGHBOR_INDICES = np.delete(NEIGHBOR_INDICES, 13, axis=0)
-
-
 
 
 class Octree:
@@ -60,7 +57,8 @@ class Octree:
         self.children = [None] * 8
 
     def __hash__(self) -> int:
-        return hash(tuple(np.around(np.array(self.center),decimals=4)))
+        # return hash(tuple(np.around(np.array(self.center),decimals=4)))
+        return hash(tuple(self.center*100))
 
     def __eq__(self, __o: object) -> bool:
         return id(self) == id(__o)
